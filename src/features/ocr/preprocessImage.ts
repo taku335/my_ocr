@@ -181,18 +181,47 @@ async function loadImageFromBlob(image: Blob): Promise<HTMLImageElement> {
   }
 }
 
-export async function preprocessImageForDigitOcr(image: Blob): Promise<HTMLCanvasElement> {
-  const sourceImage = await loadImageFromBlob(image);
+function drawSourceToCanvas(
+  context: CanvasRenderingContext2D,
+  source: HTMLImageElement | HTMLCanvasElement,
+  width: number,
+  height: number
+): void {
+  context.drawImage(source, 0, 0, width, height);
+}
+
+function getSourceDimensions(source: HTMLImageElement | HTMLCanvasElement): {
+  width: number;
+  height: number;
+} {
+  if (source instanceof HTMLImageElement) {
+    return {
+      width: source.naturalWidth,
+      height: source.naturalHeight,
+    };
+  }
+
+  return {
+    width: source.width,
+    height: source.height,
+  };
+}
+
+export async function preprocessImageForDigitOcr(
+  image: Blob | HTMLCanvasElement
+): Promise<HTMLCanvasElement> {
+  const sourceImage = image instanceof Blob ? await loadImageFromBlob(image) : image;
+  const dimensions = getSourceDimensions(sourceImage);
   const canvas = document.createElement("canvas");
-  canvas.width = sourceImage.naturalWidth;
-  canvas.height = sourceImage.naturalHeight;
+  canvas.width = dimensions.width;
+  canvas.height = dimensions.height;
 
   const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context) {
     throw new Error("Canvas contextの取得に失敗しました。");
   }
 
-  context.drawImage(sourceImage, 0, 0);
+  drawSourceToCanvas(context, sourceImage, dimensions.width, dimensions.height);
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
   const luminance = extractLuminance(imageData.data);
   const threshold = otsuThreshold(luminance);

@@ -1,11 +1,17 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import App from "./App";
+import { runPreprocessPipeline } from "./features/ocr/preprocessPipeline";
 import { recognizeImage } from "./features/ocr/recognizeImage";
+
+vi.mock("./features/ocr/preprocessPipeline", () => ({
+  runPreprocessPipeline: vi.fn(),
+}));
 
 vi.mock("./features/ocr/recognizeImage", () => ({
   recognizeImage: vi.fn(),
 }));
 
+const mockRunPreprocessPipeline = vi.mocked(runPreprocessPipeline);
 const mockRecognizeImage = vi.mocked(recognizeImage);
 const writeTextMock = vi.fn<(text: string) => Promise<void>>();
 
@@ -15,9 +21,11 @@ function dispatchPaste(items: Array<{ type: string; getAsFile: () => File | null
 
 describe("App", () => {
   beforeEach(() => {
+    mockRunPreprocessPipeline.mockReset();
     mockRecognizeImage.mockReset();
     writeTextMock.mockReset();
     writeTextMock.mockResolvedValue(undefined);
+
     Object.defineProperty(navigator, "clipboard", {
       value: {
         writeText: writeTextMock,
@@ -26,80 +34,106 @@ describe("App", () => {
     });
   });
 
-  it("disables OCR button when no image is pasted", () => {
+  it("disables preprocess and OCR buttons when no image is pasted", () => {
     render(<App />);
+
+    expect(screen.getByRole("button", { name: "前処理実行" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "OCR実行" })).toBeDisabled();
   });
 
-  it("runs OCR after image paste", async () => {
+  it("runs preprocess and then OCR using preprocessed image", async () => {
+    const file = new File(["dummy"], "capture.png", { type: "image/png" });
+    const preprocessedFile = new File(["processed"], "processed.png", {
+      type: "image/png",
+    });
+
+    mockRunPreprocessPipeline.mockResolvedValue({
+      image: preprocessedFile,
+      appliedSteps: ["remove-table-grid-lines"],
+    });
     mockRecognizeImage.mockResolvedValue("抽出されたテキスト");
+
     render(<App />);
 
-    const file = new File(["dummy"], "capture.png", { type: "image/png" });
     dispatchPaste([
       {
         type: "image/png",
         getAsFile: () => file,
       },
     ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "前処理実行" }));
+
+    await waitFor(() => {
+      expect(mockRunPreprocessPipeline).toHaveBeenCalledWith(file, {
+        hasTableGridLines: true,
+      });
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "OCR実行" }));
 
     await waitFor(() => {
-      expect(mockRecognizeImage).toHaveBeenCalledTimes(1);
+      expect(mockRecognizeImage).toHaveBeenCalledWith(
+        preprocessedFile,
+        expect.any(Function),
+        {
+          japanese: true,
+          english: true,
+          digits: true,
+        }
+      );
     });
-    expect(mockRecognizeImage).toHaveBeenCalledWith(
-      file,
-      expect.any(Function),
-      {
-        japanese: true,
-        english: true,
-        digits: true,
-      },
-      {
-        hasTableGridLines: true,
-      }
-    );
+
     expect(screen.getByDisplayValue("抽出されたテキスト")).toBeInTheDocument();
   });
 
   it("passes selected reading modes to OCR", async () => {
+    const file = new File(["dummy"], "capture.png", { type: "image/png" });
+
+    mockRunPreprocessPipeline.mockResolvedValue({
+      image: file,
+      appliedSteps: ["remove-table-grid-lines"],
+    });
     mockRecognizeImage.mockResolvedValue("123");
+
     render(<App />);
 
-    const file = new File(["dummy"], "capture.png", { type: "image/png" });
     dispatchPaste([
       {
         type: "image/png",
         getAsFile: () => file,
       },
     ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "前処理実行" }));
+
+    await waitFor(() => {
+      expect(mockRunPreprocessPipeline).toHaveBeenCalledTimes(1);
+    });
 
     fireEvent.click(screen.getByRole("checkbox", { name: "英語" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "数字" }));
     fireEvent.click(screen.getByRole("button", { name: "OCR実行" }));
 
     await waitFor(() => {
-      expect(mockRecognizeImage).toHaveBeenCalledWith(
-        file,
-        expect.any(Function),
-        {
-          japanese: true,
-          english: false,
-          digits: false,
-        },
-        {
-          hasTableGridLines: true,
-        }
-      );
+      expect(mockRecognizeImage).toHaveBeenCalledWith(file, expect.any(Function), {
+        japanese: true,
+        english: false,
+        digits: false,
+      });
     });
   });
 
-  it("passes table-grid option to OCR", async () => {
-    mockRecognizeImage.mockResolvedValue("grid off");
+  it("passes table-grid option to preprocess", async () => {
+    const file = new File(["dummy"], "capture.png", { type: "image/png" });
+
+    mockRunPreprocessPipeline.mockResolvedValue({
+      image: file,
+      appliedSteps: [],
+    });
+
     render(<App />);
 
-    const file = new File(["dummy"], "capture.png", { type: "image/png" });
     dispatchPaste([
       {
         type: "image/png",
@@ -108,35 +142,63 @@ describe("App", () => {
     ]);
 
     fireEvent.click(screen.getByRole("checkbox", { name: "表罫線を含む" }));
-    fireEvent.click(screen.getByRole("button", { name: "OCR実行" }));
+    fireEvent.click(screen.getByRole("button", { name: "前処理実行" }));
 
     await waitFor(() => {
-      expect(mockRecognizeImage).toHaveBeenCalledWith(
-        file,
-        expect.any(Function),
-        {
-          japanese: true,
-          english: true,
-          digits: true,
-        },
-        {
-          hasTableGridLines: false,
-        }
-      );
+      expect(mockRunPreprocessPipeline).toHaveBeenCalledWith(file, {
+        hasTableGridLines: false,
+      });
     });
   });
 
-  it("disables OCR button when all reading modes are OFF", () => {
+  it("disables OCR button until preprocess is completed", async () => {
+    const file = new File(["dummy"], "capture.png", { type: "image/png" });
+
+    mockRunPreprocessPipeline.mockResolvedValue({
+      image: file,
+      appliedSteps: [],
+    });
+
     render(<App />);
 
-    const file = new File(["dummy"], "capture.png", { type: "image/png" });
     dispatchPaste([
       {
         type: "image/png",
         getAsFile: () => file,
       },
     ]);
-    expect(screen.getByRole("button", { name: "OCR実行" })).toBeEnabled();
+
+    expect(screen.getByRole("button", { name: "OCR実行" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "前処理実行" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "OCR実行" })).toBeEnabled();
+    });
+  });
+
+  it("disables OCR button when all reading modes are OFF", async () => {
+    const file = new File(["dummy"], "capture.png", { type: "image/png" });
+
+    mockRunPreprocessPipeline.mockResolvedValue({
+      image: file,
+      appliedSteps: [],
+    });
+
+    render(<App />);
+
+    dispatchPaste([
+      {
+        type: "image/png",
+        getAsFile: () => file,
+      },
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "前処理実行" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "OCR実行" })).toBeEnabled();
+    });
 
     fireEvent.click(screen.getByRole("checkbox", { name: "日本語" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "英語" }));
@@ -147,16 +209,29 @@ describe("App", () => {
   });
 
   it("copies recognized text", async () => {
+    const file = new File(["dummy"], "capture.png", { type: "image/png" });
+
+    mockRunPreprocessPipeline.mockResolvedValue({
+      image: file,
+      appliedSteps: [],
+    });
     mockRecognizeImage.mockResolvedValue("copy target");
+
     render(<App />);
 
-    const file = new File(["dummy"], "capture.png", { type: "image/png" });
     dispatchPaste([
       {
         type: "image/png",
         getAsFile: () => file,
       },
     ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "前処理実行" }));
+
+    await waitFor(() => {
+      expect(mockRunPreprocessPipeline).toHaveBeenCalledTimes(1);
+    });
+
     fireEvent.click(screen.getByRole("button", { name: "OCR実行" }));
 
     await waitFor(() => {
