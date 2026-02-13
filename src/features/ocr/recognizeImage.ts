@@ -5,20 +5,15 @@ import {
   type WorkerOptions,
   type WorkerParams,
 } from "tesseract.js";
+import { preprocessImageForDigitOcr } from "./preprocessImage";
+import {
+  DEFAULT_OCR_MODES,
+  DEFAULT_OCR_PREPROCESS_OPTIONS,
+  type OcrCharacterModes,
+  type OcrPreprocessOptions,
+} from "./types";
 
 type ProgressCallback = (progress: number) => void;
-
-export type OcrCharacterModes = {
-  japanese: boolean;
-  english: boolean;
-  digits: boolean;
-};
-
-const DEFAULT_MODES: OcrCharacterModes = {
-  japanese: true,
-  english: true,
-  digits: true,
-};
 
 const DIGIT_ONLY_WHITELIST = "0123456789.,:/-+%()[]{} ";
 
@@ -68,7 +63,8 @@ function filterByModes(text: string, modes: OcrCharacterModes): string {
 export async function recognizeImage(
   image: Blob,
   onProgress?: ProgressCallback,
-  modes: OcrCharacterModes = DEFAULT_MODES
+  modes: OcrCharacterModes = DEFAULT_OCR_MODES,
+  preprocessOptions: OcrPreprocessOptions = DEFAULT_OCR_PREPROCESS_OPTIONS
 ): Promise<string> {
   const language = resolveLanguage(modes);
 
@@ -88,6 +84,11 @@ export async function recognizeImage(
     ...(workerParams as Partial<WorkerOptions>),
   };
 
-  const { data } = await recognize(image, language, workerOptions);
+  const preprocessedImage =
+    modes.digits && preprocessOptions.hasTableGridLines && image.size > 0
+      ? await preprocessImageForDigitOcr(image).catch(() => image)
+      : image;
+
+  const { data } = await recognize(preprocessedImage, language, workerOptions);
   return filterByModes(data.text, modes);
 }

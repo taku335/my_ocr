@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
+import { recognizeImage } from "./features/ocr/recognizeImage";
 import {
-  recognizeImage,
+  DEFAULT_OCR_PREPROCESS_OPTIONS,
   type OcrCharacterModes,
-} from "./features/ocr/recognizeImage";
+  type OcrPreprocessOptions,
+} from "./features/ocr/types";
 import { getImageFileFromClipboard } from "./features/paste/getImageFileFromClipboard";
 import { copyTextToClipboard } from "./features/result/copyText";
 
@@ -27,6 +29,9 @@ function App() {
   const [progress, setProgress] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [ocrModes, setOcrModes] = useState<OcrCharacterModes>(DEFAULT_OCR_MODES);
+  const [preprocessOptions, setPreprocessOptions] = useState<OcrPreprocessOptions>(
+    DEFAULT_OCR_PREPROCESS_OPTIONS
+  );
 
   useEffect(() => {
     if (!imageFile) {
@@ -82,7 +87,7 @@ function App() {
     setStatusMessage("OCR処理中です...");
 
     try {
-      const text = await recognizeImage(imageFile, setProgress, ocrModes);
+      const text = await recognizeImage(imageFile, setProgress, ocrModes, preprocessOptions);
       setRecognizedText(text);
       setStatusMessage("OCRが完了しました。必要ならテキストを修正してください。");
     } catch {
@@ -91,7 +96,7 @@ function App() {
     } finally {
       setIsProcessing(false);
     }
-  }, [imageFile, ocrModes]);
+  }, [imageFile, ocrModes, preprocessOptions]);
 
   const handleToggleMode = useCallback(
     (key: keyof OcrCharacterModes) => {
@@ -113,6 +118,18 @@ function App() {
     setIsProcessing(false);
     setStatusMessage("クリアしました。新しい画像を貼り付けてください。");
   }, []);
+
+  const handleToggleTableGridLines = useCallback(() => {
+    if (isProcessing) {
+      return;
+    }
+
+    setPreprocessOptions((previous) => ({
+      ...previous,
+      hasTableGridLines: !previous.hasTableGridLines,
+    }));
+    setErrorMessage(null);
+  }, [isProcessing]);
 
   const handleCopy = useCallback(async () => {
     if (!recognizedText.trim()) {
@@ -201,6 +218,21 @@ function App() {
               貼り付け画像に含まれる文字種だけをONにすると、誤認識を減らしやすくなります。
             </p>
           )}
+        </fieldset>
+
+        <fieldset className="mode-group" disabled={isProcessing}>
+          <legend>画像オプション</legend>
+          <label className="mode-option">
+            <input
+              type="checkbox"
+              checked={preprocessOptions.hasTableGridLines}
+              onChange={handleToggleTableGridLines}
+            />
+            表罫線を含む
+          </label>
+          <p className="mode-hint">
+            ONの場合、表の水平線・垂直線を弱めて数字OCRの誤認識を抑制します。
+          </p>
         </fieldset>
 
         <div className="actions">

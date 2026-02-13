@@ -48,11 +48,18 @@ describe("App", () => {
     await waitFor(() => {
       expect(mockRecognizeImage).toHaveBeenCalledTimes(1);
     });
-    expect(mockRecognizeImage).toHaveBeenCalledWith(file, expect.any(Function), {
-      japanese: true,
-      english: true,
-      digits: true,
-    });
+    expect(mockRecognizeImage).toHaveBeenCalledWith(
+      file,
+      expect.any(Function),
+      {
+        japanese: true,
+        english: true,
+        digits: true,
+      },
+      {
+        hasTableGridLines: true,
+      }
+    );
     expect(screen.getByDisplayValue("抽出されたテキスト")).toBeInTheDocument();
   });
 
@@ -73,11 +80,49 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "OCR実行" }));
 
     await waitFor(() => {
-      expect(mockRecognizeImage).toHaveBeenCalledWith(file, expect.any(Function), {
-        japanese: true,
-        english: false,
-        digits: false,
-      });
+      expect(mockRecognizeImage).toHaveBeenCalledWith(
+        file,
+        expect.any(Function),
+        {
+          japanese: true,
+          english: false,
+          digits: false,
+        },
+        {
+          hasTableGridLines: true,
+        }
+      );
+    });
+  });
+
+  it("passes table-grid option to OCR", async () => {
+    mockRecognizeImage.mockResolvedValue("grid off");
+    render(<App />);
+
+    const file = new File(["dummy"], "capture.png", { type: "image/png" });
+    dispatchPaste([
+      {
+        type: "image/png",
+        getAsFile: () => file,
+      },
+    ]);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "表罫線を含む" }));
+    fireEvent.click(screen.getByRole("button", { name: "OCR実行" }));
+
+    await waitFor(() => {
+      expect(mockRecognizeImage).toHaveBeenCalledWith(
+        file,
+        expect.any(Function),
+        {
+          japanese: true,
+          english: true,
+          digits: true,
+        },
+        {
+          hasTableGridLines: false,
+        }
+      );
     });
   });
 
