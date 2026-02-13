@@ -48,7 +48,57 @@ describe("App", () => {
     await waitFor(() => {
       expect(mockRecognizeImage).toHaveBeenCalledTimes(1);
     });
+    expect(mockRecognizeImage).toHaveBeenCalledWith(file, expect.any(Function), {
+      japanese: true,
+      english: true,
+      digits: true,
+    });
     expect(screen.getByDisplayValue("抽出されたテキスト")).toBeInTheDocument();
+  });
+
+  it("passes selected reading modes to OCR", async () => {
+    mockRecognizeImage.mockResolvedValue("123");
+    render(<App />);
+
+    const file = new File(["dummy"], "capture.png", { type: "image/png" });
+    dispatchPaste([
+      {
+        type: "image/png",
+        getAsFile: () => file,
+      },
+    ]);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "英語" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "数字" }));
+    fireEvent.click(screen.getByRole("button", { name: "OCR実行" }));
+
+    await waitFor(() => {
+      expect(mockRecognizeImage).toHaveBeenCalledWith(file, expect.any(Function), {
+        japanese: true,
+        english: false,
+        digits: false,
+      });
+    });
+  });
+
+  it("disables OCR button when all reading modes are OFF", () => {
+    render(<App />);
+
+    const file = new File(["dummy"], "capture.png", { type: "image/png" });
+    dispatchPaste([
+      {
+        type: "image/png",
+        getAsFile: () => file,
+      },
+    ]);
+    expect(screen.getByRole("button", { name: "OCR実行" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "日本語" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "英語" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "数字" }));
+
+    expect(screen.getByRole("button", { name: "OCR実行" })).toBeDisabled();
+    expect(screen.getByText("少なくとも1つの読み取りモードをONにしてください。")).toBeInTheDocument();
   });
 
   it("copies recognized text", async () => {

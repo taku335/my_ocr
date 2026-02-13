@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
-import { recognizeImage } from "./features/ocr/recognizeImage";
+import {
+  recognizeImage,
+  type OcrCharacterModes,
+} from "./features/ocr/recognizeImage";
 import { getImageFileFromClipboard } from "./features/paste/getImageFileFromClipboard";
 import { copyTextToClipboard } from "./features/result/copyText";
 
 const PASTE_ERROR_MESSAGE =
   "画像を貼り付けてください。対応形式: PNG / JPEG / WEBP";
+const MODE_REQUIRED_MESSAGE = "少なくとも1つの読み取りモードをONにしてください。";
+const DEFAULT_OCR_MODES: OcrCharacterModes = {
+  japanese: true,
+  english: true,
+  digits: true,
+};
 
 function App() {
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -17,6 +26,7 @@ function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [ocrModes, setOcrModes] = useState<OcrCharacterModes>(DEFAULT_OCR_MODES);
 
   useEffect(() => {
     if (!imageFile) {
@@ -61,13 +71,18 @@ function App() {
       return;
     }
 
+    if (!Object.values(ocrModes).some(Boolean)) {
+      setErrorMessage(MODE_REQUIRED_MESSAGE);
+      return;
+    }
+
     setErrorMessage(null);
     setIsProcessing(true);
     setProgress(0);
     setStatusMessage("OCR処理中です...");
 
     try {
-      const text = await recognizeImage(imageFile, setProgress);
+      const text = await recognizeImage(imageFile, setProgress, ocrModes);
       setRecognizedText(text);
       setStatusMessage("OCRが完了しました。必要ならテキストを修正してください。");
     } catch {
@@ -76,7 +91,19 @@ function App() {
     } finally {
       setIsProcessing(false);
     }
-  }, [imageFile]);
+  }, [imageFile, ocrModes]);
+
+  const handleToggleMode = useCallback(
+    (key: keyof OcrCharacterModes) => {
+      if (isProcessing) {
+        return;
+      }
+
+      setOcrModes((previous) => ({ ...previous, [key]: !previous[key] }));
+      setErrorMessage(null);
+    },
+    [isProcessing]
+  );
 
   const handleClear = useCallback(() => {
     setImageFile(null);
@@ -106,7 +133,8 @@ function App() {
     }
   }, [recognizedText]);
 
-  const canRunOcr = Boolean(imageFile) && !isProcessing;
+  const hasEnabledMode = useMemo(() => Object.values(ocrModes).some(Boolean), [ocrModes]);
+  const canRunOcr = Boolean(imageFile) && !isProcessing && hasEnabledMode;
   const canCopy = Boolean(recognizedText.trim()) && !isProcessing;
   const hasImage = useMemo(() => Boolean(imagePreviewUrl), [imagePreviewUrl]);
 
@@ -140,6 +168,40 @@ function App() {
             <figcaption>プレビュー</figcaption>
           </figure>
         )}
+
+        <fieldset className="mode-group" disabled={isProcessing}>
+          <legend>読み取りモード</legend>
+          <label className="mode-option">
+            <input
+              type="checkbox"
+              checked={ocrModes.japanese}
+              onChange={() => handleToggleMode("japanese")}
+            />
+            日本語
+          </label>
+          <label className="mode-option">
+            <input
+              type="checkbox"
+              checked={ocrModes.english}
+              onChange={() => handleToggleMode("english")}
+            />
+            英語
+          </label>
+          <label className="mode-option">
+            <input
+              type="checkbox"
+              checked={ocrModes.digits}
+              onChange={() => handleToggleMode("digits")}
+            />
+            数字
+          </label>
+          {!hasEnabledMode && <p className="mode-hint mode-hint-error">{MODE_REQUIRED_MESSAGE}</p>}
+          {hasEnabledMode && (
+            <p className="mode-hint">
+              貼り付け画像に含まれる文字種だけをONにすると、誤認識を減らしやすくなります。
+            </p>
+          )}
+        </fieldset>
 
         <div className="actions">
           <button
