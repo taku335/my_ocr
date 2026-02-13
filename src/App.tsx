@@ -125,7 +125,7 @@ function App() {
     }
 
     if (!preprocessedImage) {
-      setErrorMessage("先に「前処理実行」を押してください。");
+      setErrorMessage("先に「前処理実行」または「前処理なし」を押してください。");
       return;
     }
 
@@ -151,6 +151,18 @@ function App() {
     }
   }, [imageFile, ocrModes, preprocessedImage]);
 
+  const handleUseOriginalImage = useCallback(() => {
+    if (!imageFile || isBusy) {
+      return;
+    }
+
+    setPreprocessedImage(imageFile);
+    setRecognizedText("");
+    setProgress(0);
+    setErrorMessage(null);
+    setStatusMessage("前処理なしで元画像を使用します。文字種を選んでOCRを実行してください。");
+  }, [imageFile, isBusy]);
+
   const handleToggleMode = useCallback(
     (key: keyof OcrCharacterModes) => {
       if (isBusy) {
@@ -163,21 +175,24 @@ function App() {
     [isBusy]
   );
 
-  const handleToggleTableGridLines = useCallback(() => {
-    if (isBusy) {
-      return;
-    }
+  const handleTogglePreprocessOption = useCallback(
+    (key: keyof OcrPreprocessOptions) => {
+      if (isBusy) {
+        return;
+      }
 
-    setPreprocessOptions((previous) => ({
-      ...previous,
-      hasTableGridLines: !previous.hasTableGridLines,
-    }));
-    setPreprocessedImage(null);
-    setRecognizedText("");
-    setProgress(0);
-    setErrorMessage(null);
-    setStatusMessage("前処理設定を変更しました。「前処理実行」を押してください。");
-  }, [isBusy]);
+      setPreprocessOptions((previous) => ({
+        ...previous,
+        [key]: !previous[key],
+      }));
+      setPreprocessedImage(null);
+      setRecognizedText("");
+      setProgress(0);
+      setErrorMessage(null);
+      setStatusMessage("前処理設定を変更しました。「前処理実行」を押してください。");
+    },
+    [isBusy]
+  );
 
   const handleClear = useCallback(() => {
     setImageFile(null);
@@ -211,6 +226,7 @@ function App() {
 
   const hasEnabledMode = useMemo(() => Object.values(ocrModes).some(Boolean), [ocrModes]);
   const canRunPreprocess = Boolean(imageFile) && !isBusy;
+  const canUseOriginalImage = Boolean(imageFile) && !isBusy;
   const canRunOcr = Boolean(preprocessedImage) && hasEnabledMode && !isBusy;
   const canCopy = Boolean(recognizedText.trim()) && !isBusy;
   const hasImage = useMemo(() => Boolean(imagePreviewUrl), [imagePreviewUrl]);
@@ -255,13 +271,21 @@ function App() {
           <label className="mode-option">
             <input
               type="checkbox"
+              checked={preprocessOptions.hasBackgroundColor}
+              onChange={() => handleTogglePreprocessOption("hasBackgroundColor")}
+            />
+            画像の背景色を除去
+          </label>
+          <label className="mode-option">
+            <input
+              type="checkbox"
               checked={preprocessOptions.hasTableGridLines}
-              onChange={handleToggleTableGridLines}
+              onChange={() => handleTogglePreprocessOption("hasTableGridLines")}
             />
             表罫線を含む
           </label>
           <p className="mode-hint">
-            ONの場合、表の水平線・垂直線を弱めます。今後ここに前処理オプションを追加できます。
+            ONにした前処理だけ実行されます。必要なものを選んでから「前処理実行」を押してください。
           </p>
         </fieldset>
 
@@ -274,6 +298,9 @@ function App() {
             disabled={!canRunPreprocess}
           >
             前処理実行
+          </button>
+          <button type="button" onClick={handleUseOriginalImage} disabled={!canUseOriginalImage}>
+            前処理なし
           </button>
         </div>
 

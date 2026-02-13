@@ -11,9 +11,11 @@ export const DEFAULT_OCR_MODES: OcrCharacterModes = {
 };
 
 export type OcrPreprocessOptions = {
+  hasBackgroundColor: boolean;
   hasTableGridLines: boolean;
 };
 
 export const DEFAULT_OCR_PREPROCESS_OPTIONS: OcrPreprocessOptions = {
+  hasBackgroundColor: false,
   hasTableGridLines: true,
 };

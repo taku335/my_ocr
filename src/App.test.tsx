@@ -34,10 +34,11 @@ describe("App", () => {
     });
   });
 
-  it("disables preprocess and OCR buttons when no image is pasted", () => {
+  it("disables preprocess-related and OCR buttons when no image is pasted", () => {
     render(<App />);
 
     expect(screen.getByRole("button", { name: "前処理実行" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "前処理なし" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "OCR実行" })).toBeDisabled();
   });
 
@@ -66,6 +67,7 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(mockRunPreprocessPipeline).toHaveBeenCalledWith(file, {
+        hasBackgroundColor: false,
         hasTableGridLines: true,
       });
     });
@@ -146,7 +148,36 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(mockRunPreprocessPipeline).toHaveBeenCalledWith(file, {
+        hasBackgroundColor: false,
         hasTableGridLines: false,
+      });
+    });
+  });
+
+  it("passes background-removal option to preprocess", async () => {
+    const file = new File(["dummy"], "capture.png", { type: "image/png" });
+
+    mockRunPreprocessPipeline.mockResolvedValue({
+      image: file,
+      appliedSteps: [],
+    });
+
+    render(<App />);
+
+    dispatchPaste([
+      {
+        type: "image/png",
+        getAsFile: () => file,
+      },
+    ]);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "画像の背景色を除去" }));
+    fireEvent.click(screen.getByRole("button", { name: "前処理実行" }));
+
+    await waitFor(() => {
+      expect(mockRunPreprocessPipeline).toHaveBeenCalledWith(file, {
+        hasBackgroundColor: true,
+        hasTableGridLines: true,
       });
     });
   });
@@ -174,6 +205,32 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "OCR実行" })).toBeEnabled();
+    });
+  });
+
+  it("uses original image when preprocess is skipped", async () => {
+    const file = new File(["dummy"], "capture.png", { type: "image/png" });
+    mockRecognizeImage.mockResolvedValue("skip preprocess");
+
+    render(<App />);
+
+    dispatchPaste([
+      {
+        type: "image/png",
+        getAsFile: () => file,
+      },
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "前処理なし" }));
+    fireEvent.click(screen.getByRole("button", { name: "OCR実行" }));
+
+    await waitFor(() => {
+      expect(mockRunPreprocessPipeline).not.toHaveBeenCalled();
+      expect(mockRecognizeImage).toHaveBeenCalledWith(file, expect.any(Function), {
+        japanese: true,
+        english: true,
+        digits: true,
+      });
     });
   });
 

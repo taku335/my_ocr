@@ -1,9 +1,15 @@
 const DEFAULT_LONG_RUN_RATIO = 0.45;
 const MIN_RUN_LENGTH_PX = 24;
 const DARK_PIXEL = 1;
+const BACKGROUND_DISTANCE_THRESHOLD = 64;
+const BACKGROUND_MIN_LUMINANCE = 120;
 
 function getPixelIndex(x: number, y: number, width: number): number {
   return y * width + x;
+}
+
+function getLuminance(red: number, green: number, blue: number): number {
+  return Math.round(red * 0.299 + green * 0.587 + blue * 0.114);
 }
 
 function extractLuminance(source: Uint8ClampedArray): Uint8Array {
@@ -13,7 +19,7 @@ function extractLuminance(source: Uint8ClampedArray): Uint8Array {
     const red = source[offset];
     const green = source[offset + 1];
     const blue = source[offset + 2];
-    luminance[pixel] = Math.round(red * 0.299 + green * 0.587 + blue * 0.114);
+    luminance[pixel] = getLuminance(red, green, blue);
   }
   return luminance;
 }
@@ -207,7 +213,16 @@ function getSourceDimensions(source: HTMLImageElement | HTMLCanvasElement): {
   };
 }
 
-export async function preprocessImageForDigitOcr(
+function getCanvasContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    throw new Error("Canvas contextの取得に失敗しました。");
+  }
+
+  return context;
+}
+
+async function createWorkingCanvas(
   image: Blob | HTMLCanvasElement
 ): Promise<HTMLCanvasElement> {
   const sourceImage = image instanceof Blob ? await loadImageFromBlob(image) : image;
@@ -216,12 +231,89 @@ export async function preprocessImageForDigitOcr(
   canvas.width = dimensions.width;
   canvas.height = dimensions.height;
 
-  const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (!context) {
-    throw new Error("Canvas contextの取得に失敗しました。");
+  const context = getCanvasContext(canvas);
+  drawSourceToCanvas(context, sourceImage, dimensions.width, dimensions.height);
+  return canvas;
+}
+
+function getDominantBorderColor(imageData: ImageData): { red: number; green: number; blue: number } {
+  const { data, width, height } = imageData;
+  let sampleCount = 0;
+  let redSum = 0;
+  let greenSum = 0;
+  let blueSum = 0;
+
+  const addSample = (x: number, y: number) => {
+    const offset = getPixelIndex(x, y, width) * 4;
+    redSum += data[offset];
+    greenSum += data[offset + 1];
+    blueSum += data[offset + 2];
+    sampleCount += 1;
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    addSample(x, 0);
+    if (height > 1) {
+      addSample(x, height - 1);
+    }
   }
 
-  drawSourceToCanvas(context, sourceImage, dimensions.width, dimensions.height);
+  for (let y = 1; y < height - 1; y += 1) {
+    addSample(0, y);
+    if (width > 1) {
+      addSample(width - 1, y);
+    }
+  }
+
+  if (sampleCount === 0) {
+    return { red: 255, green: 255, blue: 255 };
+  }
+
+  return {
+    red: Math.round(redSum / sampleCount),
+    green: Math.round(greenSum / sampleCount),
+    blue: Math.round(blueSum / sampleCount),
+  };
+}
+
+export async function preprocessImageForBackgroundColorRemoval(
+  image: Blob | HTMLCanvasElement
+): Promise<HTMLCanvasElement> {
+  const canvas = await createWorkingCanvas(image);
+  const context = getCanvasContext(canvas);
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const backgroundColor = getDominantBorderColor(imageData);
+  const pixels = imageData.data;
+
+  for (let index = 0; index < pixels.length; index += 4) {
+    const red = pixels[index];
+    const green = pixels[index + 1];
+    const blue = pixels[index + 2];
+    const distance =
+      Math.abs(red - backgroundColor.red) +
+      Math.abs(green - backgroundColor.green) +
+      Math.abs(blue - backgroundColor.blue);
+    const luminance = getLuminance(red, green, blue);
+
+    if (distance > BACKGROUND_DISTANCE_THRESHOLD || luminance < BACKGROUND_MIN_LUMINANCE) {
+      continue;
+    }
+
+    pixels[index] = 255;
+    pixels[index + 1] = 255;
+    pixels[index + 2] = 255;
+    pixels[index + 3] = 255;
+  }
+
+  context.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+export async function preprocessImageForDigitOcr(
+  image: Blob | HTMLCanvasElement
+): Promise<HTMLCanvasElement> {
+  const canvas = await createWorkingCanvas(image);
+  const context = getCanvasContext(canvas);
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
   const luminance = extractLuminance(imageData.data);
   const threshold = otsuThreshold(luminance);

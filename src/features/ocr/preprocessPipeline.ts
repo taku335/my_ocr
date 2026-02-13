@@ -1,4 +1,7 @@
-import { preprocessImageForDigitOcr } from "./preprocessImage";
+import {
+  preprocessImageForBackgroundColorRemoval,
+  preprocessImageForDigitOcr,
+} from "./preprocessImage";
 import {
   DEFAULT_OCR_PREPROCESS_OPTIONS,
   type OcrPreprocessOptions,
@@ -34,6 +37,11 @@ async function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 }
 
 const PREPROCESS_STEPS: PreprocessStep[] = [
+  {
+    id: "remove-background-color",
+    isEnabled: (options) => options.hasBackgroundColor,
+    apply: async (image) => preprocessImageForBackgroundColorRemoval(image),
+  },
   {
     id: "remove-table-grid-lines",
     isEnabled: (options) => options.hasTableGridLines,
