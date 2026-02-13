@@ -1,22 +1,37 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
+import { runPreprocessPipeline } from "./features/ocr/preprocessPipeline";
 import { recognizeImage } from "./features/ocr/recognizeImage";
+import {
+  DEFAULT_OCR_MODES,
+  DEFAULT_OCR_PREPROCESS_OPTIONS,
+  type OcrCharacterModes,
+  type OcrPreprocessOptions,
+} from "./features/ocr/types";
 import { getImageFileFromClipboard } from "./features/paste/getImageFileFromClipboard";
 import { copyTextToClipboard } from "./features/result/copyText";
 
 const PASTE_ERROR_MESSAGE =
   "画像を貼り付けてください。対応形式: PNG / JPEG / WEBP";
+const MODE_REQUIRED_MESSAGE = "少なくとも1つの読み取りモードをONにしてください。";
 
 function App() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [preprocessedImage, setPreprocessedImage] = useState<Blob | null>(null);
+  const [preprocessedPreviewUrl, setPreprocessedPreviewUrl] = useState<string | null>(null);
   const [recognizedText, setRecognizedText] = useState("");
   const [statusMessage, setStatusMessage] = useState(
     "資料をコピーして、この画面で Ctrl+V / Cmd+V してください。"
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isPreprocessing, setIsPreprocessing] = useState(false);
+  const [isRecognizing, setIsRecognizing] = useState(false);
+  const [ocrModes, setOcrModes] = useState<OcrCharacterModes>(DEFAULT_OCR_MODES);
+  const [preprocessOptions, setPreprocessOptions] = useState<OcrPreprocessOptions>(
+    DEFAULT_OCR_PREPROCESS_OPTIONS
+  );
 
   useEffect(() => {
     if (!imageFile) {
@@ -32,6 +47,20 @@ function App() {
     };
   }, [imageFile]);
 
+  useEffect(() => {
+    if (!preprocessedImage) {
+      setPreprocessedPreviewUrl(null);
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(preprocessedImage);
+    setPreprocessedPreviewUrl(objectUrl);
+
+    return () => {
+      URL.revokeObjectURL(objectUrl);
+    };
+  }, [preprocessedImage]);
+
   const handleClipboardData = useCallback((data: DataTransfer | null) => {
     const pastedImage = getImageFileFromClipboard(data);
     if (!pastedImage) {
@@ -40,10 +69,11 @@ function App() {
     }
 
     setImageFile(pastedImage);
+    setPreprocessedImage(null);
     setRecognizedText("");
     setProgress(0);
     setErrorMessage(null);
-    setStatusMessage("画像を受け付けました。「OCR実行」を押してください。");
+    setStatusMessage("画像を受け付けました。「前処理実行」を押してください。");
   }, []);
 
   useEffect(() => {
@@ -55,35 +85,123 @@ function App() {
     return () => window.removeEventListener("paste", handlePaste);
   }, [handleClipboardData]);
 
-  const handleRunOcr = useCallback(async () => {
+  const isBusy = useMemo(() => isPreprocessing || isRecognizing, [isPreprocessing, isRecognizing]);
+
+  const handleRunPreprocess = useCallback(async () => {
     if (!imageFile) {
       setErrorMessage("先に画像を貼り付けてください。");
       return;
     }
 
     setErrorMessage(null);
-    setIsProcessing(true);
+    setIsPreprocessing(true);
+    setProgress(0);
+    setRecognizedText("");
+    setStatusMessage("前処理を実行中です...");
+
+    try {
+      const result = await runPreprocessPipeline(imageFile, preprocessOptions);
+      setPreprocessedImage(result.image);
+
+      if (result.appliedSteps.length > 0) {
+        setStatusMessage("前処理が完了しました。文字種を選んでOCRを実行してください。");
+      } else {
+        setStatusMessage(
+          "前処理オプションがOFFのため元画像をそのまま使用します。文字種を選んでOCRを実行してください。"
+        );
+      }
+    } catch {
+      setErrorMessage("前処理に失敗しました。画像や設定を確認して再実行してください。");
+      setStatusMessage("前処理に失敗しました。");
+    } finally {
+      setIsPreprocessing(false);
+    }
+  }, [imageFile, preprocessOptions]);
+
+  const handleRunOcr = useCallback(async () => {
+    if (!imageFile) {
+      setErrorMessage("先に画像を貼り付けてください。");
+      return;
+    }
+
+    if (!preprocessedImage) {
+      setErrorMessage("先に「前処理実行」または「前処理なし」を押してください。");
+      return;
+    }
+
+    if (!Object.values(ocrModes).some(Boolean)) {
+      setErrorMessage(MODE_REQUIRED_MESSAGE);
+      return;
+    }
+
+    setErrorMessage(null);
+    setIsRecognizing(true);
     setProgress(0);
     setStatusMessage("OCR処理中です...");
 
     try {
-      const text = await recognizeImage(imageFile, setProgress);
+      const text = await recognizeImage(preprocessedImage, setProgress, ocrModes);
       setRecognizedText(text);
       setStatusMessage("OCRが完了しました。必要ならテキストを修正してください。");
     } catch {
       setErrorMessage("OCRに失敗しました。画像を確認して再実行してください。");
       setStatusMessage("OCR処理に失敗しました。");
     } finally {
-      setIsProcessing(false);
+      setIsRecognizing(false);
     }
-  }, [imageFile]);
+  }, [imageFile, ocrModes, preprocessedImage]);
 
-  const handleClear = useCallback(() => {
-    setImageFile(null);
+  const handleUseOriginalImage = useCallback(() => {
+    if (!imageFile || isBusy) {
+      return;
+    }
+
+    setPreprocessedImage(imageFile);
     setRecognizedText("");
     setProgress(0);
     setErrorMessage(null);
-    setIsProcessing(false);
+    setStatusMessage("前処理なしで元画像を使用します。文字種を選んでOCRを実行してください。");
+  }, [imageFile, isBusy]);
+
+  const handleToggleMode = useCallback(
+    (key: keyof OcrCharacterModes) => {
+      if (isBusy) {
+        return;
+      }
+
+      setOcrModes((previous) => ({ ...previous, [key]: !previous[key] }));
+      setErrorMessage(null);
+    },
+    [isBusy]
+  );
+
+  const handleTogglePreprocessOption = useCallback(
+    (key: keyof OcrPreprocessOptions) => {
+      if (isBusy) {
+        return;
+      }
+
+      setPreprocessOptions((previous) => ({
+        ...previous,
+        [key]: !previous[key],
+      }));
+      setPreprocessedImage(null);
+      setRecognizedText("");
+      setProgress(0);
+      setErrorMessage(null);
+      setStatusMessage("前処理設定を変更しました。「前処理実行」を押してください。");
+    },
+    [isBusy]
+  );
+
+  const handleClear = useCallback(() => {
+    setImageFile(null);
+    setPreprocessedImage(null);
+    setRecognizedText("");
+    setProgress(0);
+    setErrorMessage(null);
+    setIsPreprocessing(false);
+    setIsRecognizing(false);
     setStatusMessage("クリアしました。新しい画像を貼り付けてください。");
   }, []);
 
@@ -106,9 +224,16 @@ function App() {
     }
   }, [recognizedText]);
 
-  const canRunOcr = Boolean(imageFile) && !isProcessing;
-  const canCopy = Boolean(recognizedText.trim()) && !isProcessing;
+  const hasEnabledMode = useMemo(() => Object.values(ocrModes).some(Boolean), [ocrModes]);
+  const canRunPreprocess = Boolean(imageFile) && !isBusy;
+  const canUseOriginalImage = Boolean(imageFile) && !isBusy;
+  const canRunOcr = Boolean(preprocessedImage) && hasEnabledMode && !isBusy;
+  const canCopy = Boolean(recognizedText.trim()) && !isBusy;
   const hasImage = useMemo(() => Boolean(imagePreviewUrl), [imagePreviewUrl]);
+  const hasPreprocessedImage = useMemo(
+    () => Boolean(preprocessedPreviewUrl),
+    [preprocessedPreviewUrl]
+  );
 
   return (
     <main className="app-shell">
@@ -137,9 +262,88 @@ function App() {
         {hasImage && imagePreviewUrl && (
           <figure className="preview">
             <img src={imagePreviewUrl} alt="貼り付けた画像のプレビュー" />
-            <figcaption>プレビュー</figcaption>
+            <figcaption>元画像プレビュー</figcaption>
           </figure>
         )}
+
+        <fieldset className="mode-group" disabled={isBusy}>
+          <legend>2. 前処理オプション</legend>
+          <label className="mode-option">
+            <input
+              type="checkbox"
+              checked={preprocessOptions.hasBackgroundColor}
+              onChange={() => handleTogglePreprocessOption("hasBackgroundColor")}
+            />
+            画像の背景色を除去
+          </label>
+          <label className="mode-option">
+            <input
+              type="checkbox"
+              checked={preprocessOptions.hasTableGridLines}
+              onChange={() => handleTogglePreprocessOption("hasTableGridLines")}
+            />
+            表罫線を含む
+          </label>
+          <p className="mode-hint">
+            ONにした前処理だけ実行されます。必要なものを選んでから「前処理実行」を押してください。
+          </p>
+        </fieldset>
+
+        <div className="actions">
+          <button
+            type="button"
+            onClick={() => {
+              void handleRunPreprocess();
+            }}
+            disabled={!canRunPreprocess}
+          >
+            前処理実行
+          </button>
+          <button type="button" onClick={handleUseOriginalImage} disabled={!canUseOriginalImage}>
+            前処理なし
+          </button>
+        </div>
+
+        {hasPreprocessedImage && preprocessedPreviewUrl && (
+          <figure className="preview preview-processed">
+            <img src={preprocessedPreviewUrl} alt="前処理後の画像プレビュー" />
+            <figcaption>前処理後画像プレビュー</figcaption>
+          </figure>
+        )}
+
+        <fieldset className="mode-group" disabled={isBusy}>
+          <legend>3. 読み取りモード</legend>
+          <label className="mode-option">
+            <input
+              type="checkbox"
+              checked={ocrModes.japanese}
+              onChange={() => handleToggleMode("japanese")}
+            />
+            日本語
+          </label>
+          <label className="mode-option">
+            <input
+              type="checkbox"
+              checked={ocrModes.english}
+              onChange={() => handleToggleMode("english")}
+            />
+            英語
+          </label>
+          <label className="mode-option">
+            <input
+              type="checkbox"
+              checked={ocrModes.digits}
+              onChange={() => handleToggleMode("digits")}
+            />
+            数字
+          </label>
+          {!hasEnabledMode && <p className="mode-hint mode-hint-error">{MODE_REQUIRED_MESSAGE}</p>}
+          {hasEnabledMode && (
+            <p className="mode-hint">
+              前処理後画像に含まれる文字種だけをONにすると、誤認識を減らしやすくなります。
+            </p>
+          )}
+        </fieldset>
 
         <div className="actions">
           <button
@@ -151,7 +355,7 @@ function App() {
           >
             OCR実行
           </button>
-          <button type="button" onClick={handleClear} disabled={isProcessing}>
+          <button type="button" onClick={handleClear} disabled={isBusy}>
             クリア
           </button>
           <button
@@ -167,7 +371,7 @@ function App() {
       </section>
 
       <section className="panel">
-        <h2>2. OCR結果</h2>
+        <h2>4. OCR結果</h2>
         <textarea
           aria-label="OCR結果テキスト"
           className="result-text"
@@ -183,7 +387,7 @@ function App() {
         <p className={errorMessage ? "status error" : "status"} role="status">
           {errorMessage ?? statusMessage}
         </p>
-        {isProcessing && (
+        {isRecognizing && (
           <div className="progress-row">
             <progress max={100} value={progress} aria-label="OCR進捗" />
             <span>{progress}%</span>
