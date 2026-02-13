@@ -9,6 +9,8 @@
 ## 開発（Docker）
 ```bash
 docker compose up --build
+# or
+make up
 ```
 
 ブラウザで `http://localhost:5173/my_ocr/` にアクセスします。
@@ -18,7 +20,11 @@ docker compose up --build
 docker compose run --rm app npm run lint
 docker compose run --rm app npm run test:ci
 docker compose run --rm app npm run build
+# or
+make check
 ```
+
+`make help` で利用可能なコマンドを確認できます。
 
 ## テスト/品質（ローカルNodeを使う場合）
 ```bash
