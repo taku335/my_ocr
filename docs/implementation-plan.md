@@ -7,6 +7,7 @@
 1. 単一ページで「画像貼り付け -> OCR -> 結果編集 -> コピー」が動作する
 2. `main` への反映で GitHub Pages に自動デプロイされる
 3. デプロイ時にテストコードが必ず実行され、失敗時はデプロイされない
+4. Docker Composeで開発サーバーを起動できる
 
 ## 3. 実装フェーズ
 ### Phase 0: 土台構築
@@ -14,11 +15,14 @@
 2. ESLint / Prettier / TypeScript 設定
 3. npm scripts 整備（`dev`, `build`, `test`, `lint`, `preview`）
 4. GitHub Pages向け `vite.config.ts`（`base` 設定）
+5. Docker開発環境（`Dockerfile.dev`, `docker-compose.yml`, `.dockerignore`）整備
 
 成果物:
 - `/Users/taku/dev/my_ocr/package.json`
 - `/Users/taku/dev/my_ocr/vite.config.ts`
 - `/Users/taku/dev/my_ocr/src/main.tsx`
+- `/Users/taku/dev/my_ocr/Dockerfile.dev`
+- `/Users/taku/dev/my_ocr/docker-compose.yml`
 
 ### Phase 1: UI骨格と状態管理
 1. 単一ページUI（貼り付けエリア/プレビュー/操作ボタン/結果エリア/ステータス）
@@ -94,6 +98,7 @@
 - `npm run test:ci` : CI用（1回実行、カバレッジ任意）
 - `npm run lint`
 - `npm run build`
+- `docker compose run --rm app npm run test:ci`
 
 ## 5. CI/CD計画（デプロイ時にテスト実行）
 ### 5.1 ワークフロー構成
@@ -111,7 +116,7 @@
 - これにより「デプロイ時にテストが走る」を担保する
 
 ## 6. タスク分解（実施順）
-1. 初期セットアップ（Phase 0）
+1. Docker開発基盤セットアップ（Phase 0）
 2. UI骨格（Phase 1）
 3. 貼り付け処理（Phase 2）
 4. OCR統合（Phase 3）
@@ -129,6 +134,8 @@
 - 対策: 非対応時メッセージと代替手順を明示
 4. CI時間増大
 - 対策: テストをユニット中心に保ち、重いE2Eは別workflow化
+5. Dockerのファイル監視遅延
+- 対策: `CHOKIDAR_USEPOLLING=true` を開発コンテナに設定
 
 ## 8. 受け入れチェックリスト
 - [ ] 画像貼り付けでプレビュー表示される
@@ -139,3 +146,4 @@
 - [ ] `npm run test:ci` が通る
 - [ ] `npm run build` が通る
 - [ ] `main` 反映時、テスト成功時のみ Pages が更新される
+- [ ] `docker compose up` で開発画面が表示される

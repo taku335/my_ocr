@@ -6,14 +6,23 @@
 - 設計仕様: `/Users/taku/dev/my_ocr/docs/design-spec.md`
 - 実装計画: `/Users/taku/dev/my_ocr/docs/implementation-plan.md`
 
-## 開発
+## 開発（Docker）
 ```bash
-npm ci
-npm run dev
+docker compose up --build
 ```
 
-## テスト/品質
+ブラウザで `http://localhost:5173/my_ocr/` にアクセスします。
+
+## テスト/品質（Docker）
 ```bash
+docker compose run --rm app npm run lint
+docker compose run --rm app npm run test:ci
+docker compose run --rm app npm run build
+```
+
+## テスト/品質（ローカルNodeを使う場合）
+```bash
+npm ci
 npm run lint
 npm run test:ci
 npm run build
