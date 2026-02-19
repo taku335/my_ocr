@@ -1,6 +1,7 @@
 # my_ocr
 
 クリップボードにあるスクリーンショットを貼り付け、OCRしたテキストをコピー再利用するWebアプリです。
+https://taku335.github.io/my_ocr/
 
 ## ドキュメント
 - 設計仕様: `/Users/taku/dev/my_ocr/docs/design-spec.md`
